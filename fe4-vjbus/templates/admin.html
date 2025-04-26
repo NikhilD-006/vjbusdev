@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Admin Panel</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.4/socket.io.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;500;700&display=swap">
+  <link rel="stylesheet" href="../static/css/admin-styles.css">
+
+</head>
+<body>
+
+  <div class="container" id="login-container">
+    <h2>Admin Login</h2>
+    <form onsubmit="login(); return false;">
+      <input type="text" id="username" placeholder="Username: admin" />
+      <input type="password" id="password" placeholder="Password: vnradmin@123" />
+      <button class="lgn-btn" id="lgn-btn" type="submit">Login</button>
+    </form>
+  </div>
+  
+
+  <div class="container hidden" id="admin-panel">
+    <button id="logout" onclick="logout()">🚪 Logout</button>
+    <h2>🛠 Admin Dashboard</h2>
+
+    <div class="filters">
+      <div>
+        <label for="routeFilter">🚍 Route Number:</label><br>
+        <select id="routeFilter" onchange="applyFilters()">
+          <option value="">All Routes</option>
+        </select>
+      </div>
+
+      <div>
+        <label for="dateFilter">📅 Log Date:</label><br>
+        <input type="date" id="dateFilter" onchange="applyFilters()" />
+      </div>
+
+      <div class="button-group">
+        <button id="live-location" onclick="redirectToLiveLocation()">📍 View All Buses on Map </button>
+        <button id="download-pdf" onclick="downloadPDF()">📥 Download PDF</button>
+      </div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+              <th class="header_pointer" onclick="sortLogs('route_number')">Route Number</th>
+              <th class="header_pointer" onclick="sortLogs('log_date')">Log Date</th>
+              <th class="header_pointer" onclick="sortLogs('log_time')">In Time</th>
+            </tr>
+          </thead>
+          
+      <tbody id="log-table">
+        <tr><td colspan="3">No data available</td></tr>
+      </tbody>
+    </table>
+  </div>
+<script src="../static/js/admin.js"></script>
+</body>
+</html>

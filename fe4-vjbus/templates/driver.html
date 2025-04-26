@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="../static/css/driver-styles.css">
+    <title>VJ Bus Driver</title>
+</head>
+<body>
+    <div class="container">
+        <div class="route-select">
+            <label for="routeSelect">Select route:</label>
+            <select id="routeSelect"></select>
+        </div>
+        <div class="connection-status" id="connectionStatus">🔄 Connecting...</div>
+        <div class="tracking-status" id="trackingStatus">❌ Tracking OFF</div>
+        <div class="toggle-button go" id="toggleButton">GO</div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <script src="../static/js/driver.js"></script>
+</body>
+</html>
