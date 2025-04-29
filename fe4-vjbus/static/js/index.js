@@ -1,166 +1,108 @@
 // ===== CONFIGURATION CONSTANTS =====
 const API_URL = "https://auth.vnrzone.site";
-let socket; // Will be initialized after scripts are loaded
+const socket = io("wss://bus.vnrzone.site", { transports: ["websocket"] });
 
 // ===== GLOBAL VARIABLES =====
-let GOOGLE_CLIENT_ID = null;
+let GOOGLE_CLIENT_ID=null;
 let selectedRoute = "";
 let latestBusLocation = null;
 let markers = {};
-let firstRecenter = {};
-let map;
-const fixedLatLng = [17.539896, 78.386511];
-let routes = []; // Initialize as empty array, will be populated from API
-let activeRoutes = new Set();
+let firstRecenter = {}; // Track first recenter per route
+sleep(10000); // Initial sleep to ensure DOM is ready
+getGoogleClientId(); // Fetch Google Client ID
+sleep(100);
 
 // UI Elements
 let trackBtn, homeBtn, chatBtn;
 let trackingCard, routeSelect, findDistanceBtn, recenterBtn;
 let connectionStatus, statusText, distanceTimeText, lastUpdatedText;
 
-// Custom bus icon for map
-let busIcon;
 
-// ===== INITIALIZATION =====
-document.addEventListener("DOMContentLoaded", async function() {
-    console.log("DOM fully loaded, initializing application...");
-    
-    // First load all required scripts
-    try {
-        await loadAllScripts();
-        
-        // Initialize socket after script is loaded
-        socket = io("wss://bus.vnrzone.site", {
-            transports: ["websocket"],
-            reconnection: true,
-            reconnectionAttempts: 5,
-            reconnectionDelay: 1000
-        });
-        
-        // Initialize map
-        initializeMap();
-        addFixedMarker();
-        
-        // Create bus icon after Leaflet is loaded
-        busIcon = L.divIcon({
-            className: 'bus-marker',
-            html: '<div style="font-size: 25px;">🚌</div>',
-            iconSize: [50, 50],
-            iconAnchor: [15, 15]
-        });
-        
-        // Get Google client ID
-        await getGoogleClientId();
-        
-        // Get routes
-        await getRoutes();
-        
-        // Initialize UI elements
-        initializeUI();
-        
-        // Set up socket event handlers
-        setupSocketEvents();
-        
-        // Update UI based on auth state
-        updateLoginButton();
-        fill_tracking_info();
-        
-        // Initialize Google Sign-In when GOOGLE_CLIENT_ID is available
-        if (GOOGLE_CLIENT_ID) {
-            initializeGoogleSignIn();
-        }
-    } catch (error) {
-        console.error("Error during initialization:", error);
-    }
+
+// Custom bus icon for map
+const busIcon = L.divIcon({
+    className: 'bus-marker',
+    html: '<div style="font-size: 25px;">🚌</div>',
+    iconSize: [50, 50],
+    iconAnchor: [15, 15]
+});
+// map.js - Simple map initialization module
+
+// Global variables
+let map;
+const fixedLatLng = [17.539896, 78.386511];
+
+const routes = ["Route-1 (Patancheru)","Route-2 (LB Nagar)","Route-2A (Nagole)","Route-3 (Yusufguda)","Route-4A (ECIL)","Route-4B (ECIL)","Route-5 (Attapur)","Route-6 (VST)","Route-7 (Kukatpally)","Route-8 (Old Alwal)","Route-9 (KPHB via Nizampet)","Route-10 (Manikonda)","Route-11 (HCU)","Route-S-1 (Patancheru)","Route-S-2/1 (LB Nagar)","Route-S-2/2 (LB Nagar)","Route-S-3/1 (Nagole via Begumpet)","Route-S-3/2 (Nagole via taduband)","Route-S-4 (Yusufguda)","Route-S-5 (Attapur)","Route-S-6 (VST)","Route-S-7 (Kukatpally)","Route-S-8 (KPHB via Nizampet)","Route-S-9 (Manikonda)","Route-S-10 (HCU)","Route-41 (ECIL)","Route-42 (ECIL)","Route-43 (ECIL)","Route-44 (ECIL)"]; // 🌍 Global variable
+
+document.addEventListener("DOMContentLoaded", async function () {
+    initializeMap();
+    addFixedMarker();
+
+    // await getRoutes(); // No need to assign, it sets the global `routes`
+    // console.log("Routes in DOMContentLoaded:", routes);
 });
 
-// ===== MAP FUNCTIONS =====
-function initializeMap() {
-    map = L.map('map', {
-        center: fixedLatLng,
-        zoom: 13,
-        attributionControl: false  // Disable default attribution control
-    });
+// async function getRoutes() {
+//     try {
+//         console.log("Fetching routes...");
+//         const res = await fetch("/get-all-routes");
+//         const text = await res.text();
+//         routes = JSON.parse(text); // 🌍 Assign to global `routes`
+//         console.log("Routes fetched:", routes);
+//     } catch (err) {
+//         console.error("Error fetching routes:", err);
+//         routes = ["hello"]; // fallback to empty array
+//     }
+// }
 
+
+
+/**
+ * Initialize the map with tile layer
+ */
+function initializeMap() {
+    // Create map centered on fixed location
+    map = L.map('map').setView(fixedLatLng, 13);
+    
+    // Add OpenStreetMap tile layer with optimization options
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: "",  // Prevent Leaflet from auto-adding OSM attribution
+        attribution: "&copy; OpenStreetMap contributors",
         updateWhenZooming: false,
         updateWhenIdle: true,
         reuseTiles: true
     }).addTo(map);
-
-    // Custom attribution control without "Leaflet" prefix
-    L.control.attribution({
-        position: 'bottomright',
-        prefix: false  // <- this removes "Leaflet"
-    }).addTo(map);
-
-    // Add your own attribution text
-    map.attributionControl.addAttribution('VJ Bus | Map data © OpenStreetMap contributors');
 }
 
+/**
+ * Add fixed marker (flag) to the map
+ */
 function addFixedMarker() {
-    if (!map) return;
-    
+    // Create a custom DivIcon with a flag emoji
     const emojiIcon = L.divIcon({
         className: 'emoji-marker',
         html: '<div style="font-size: 25px;">🏁</div>',
         iconSize: [50, 50],
         iconAnchor: [15, 15]
     });
+    
+    // Add the marker with the emoji flag at fixed location
     L.marker(fixedLatLng, { icon: emojiIcon }).addTo(map);
 }
-
-async function getRoutes() {
-    try {
-        console.log("Fetching routes...");
-        const res = await fetch("/get-all-routes");
-        const text = await res.text();
-        routes = JSON.parse(text); // Assign to global `routes`
-        console.log("Routes fetched:", routes);
-    } catch (err) {
-        console.error("Error fetching routes:", err);
-        routes = []; // fallback to empty array
-    }
-    
-    // After fetching routes, fetch active routes
-    await fetchActiveRoutes();
-}
-
-async function fetchActiveRoutes() {
-    console.log("Fetching active routes...");
-    try {
-        const response = await fetch("https://bus.vnrzone.site/bus-be/get_all_connections");
-        if (!response.ok) {
-            throw new Error(`HTTP error! Status: ${response.status}`);
-        }
-        const connections = await response.json();
-        console.log("Active connections received:", connections);
-        activeRoutes.clear();
-        connections.forEach(conn => {
-            if (conn.status === "tracking_active") {
-                activeRoutes.add(conn.route_id);
-            }
-        });
-        updateRouteDropdown();
-    } catch (error) {
-        console.error("Error fetching active routes:", error);
-        updateRouteDropdown(); // Still update dropdown with routes we have
-    }
-}
-
 // ===== UTILITY FUNCTIONS =====
+
 async function getGoogleClientId() {
     try {
         const res = await fetch('/get-google-client-id');
         const data = await res.json();
         GOOGLE_CLIENT_ID = data.apiKey;
-        console.log("Google Client ID fetched successfully");
     } catch (error) {
         console.error("Error fetching Google Client ID", error);
     }
 }
 
+/**
+ * Load JavaScript scripts asynchronously
+ */
 function loadScript(src, isAsync = true, isDefer = true) {
     return new Promise((resolve, reject) => {
         const script = document.createElement('script');
@@ -173,6 +115,9 @@ function loadScript(src, isAsync = true, isDefer = true) {
     });
 }
 
+/**
+ * Load CSS files
+ */
 function loadCSS(href) {
     return new Promise((resolve, reject) => {
         const link = document.createElement('link');
@@ -184,20 +129,24 @@ function loadCSS(href) {
     });
 }
 
+/**
+ * Load all required scripts and CSS
+ */
 async function loadAllScripts() {
     try {
         await loadCSS("https://unpkg.com/leaflet/dist/leaflet.css");
         await loadCSS("../static/css/index-styles.css");
+        await loadScript("https://accounts.google.com/gsi/client");
         await loadScript("https://unpkg.com/leaflet/dist/leaflet.js", false, false);
         await loadScript("https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.4/socket.io.js");
-        await loadScript("https://accounts.google.com/gsi/client");
-        console.log("All scripts and CSS loaded successfully");
     } catch (error) {
-        console.error("Error loading scripts or CSS:", error);
-        throw error;
+        console.error("Something went wrong loading scripts", error);
     }
 }
 
+/**
+ * Get cookie value by name
+ */
 function getCookieValue(name) {
     const cookieString = document.cookie;
     const cookies = cookieString.split('; ');
@@ -210,187 +159,42 @@ function getCookieValue(name) {
     return null;
 }
 
+/**
+ * Decode JWT token
+ */
 function decodeJwt(token) {
-    try {
-        if (!token || token.split('.').length !== 3) {
-            // Return empty object instead of throwing error
-            return {};
-        }
-        const base64Url = token.split('.')[1];
-        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-        const jsonPayload = decodeURIComponent(atob(base64).split('').map(c =>
-            '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
-        ).join(''));
-        return JSON.parse(jsonPayload);
-    } catch (error) {
-        console.error("Error decoding JWT:", error);
-        return {}; // Return empty object on any error
-    }
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(atob(base64).split('').map(c =>
+        '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+    ).join(''));
+    return JSON.parse(jsonPayload);
 }
 
+/**
+ * Sleep function for delays
+ */
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/**
+ * Set active menu item
+ */
 function setActive(element) {
     document.querySelectorAll(".menu-item").forEach((item) => item.classList.remove("active"));
     element.classList.add("active");
 }
 
-// ===== UI INITIALIZATION =====
-function initializeUI() {
-    // Assign DOM elements
-    trackBtn = document.getElementById("trackBtn");
-    homeBtn = document.getElementById("homeBtn");
-    chatBtn = document.getElementById("chatBtn");
-    trackingCard = document.getElementById("trackingCard");
-    routeSelect = document.getElementById("routeSelect");
-    findDistanceBtn = document.getElementById("find-distance");
-    recenterBtn = document.getElementById("recenter");
-    connectionStatus = document.getElementById("connection");
-    statusText = document.getElementById("status");
-    distanceTimeText = document.getElementById("distance-time");
-    lastUpdatedText = document.getElementById("last-updated");
-    
-    if (!routeSelect) {
-        console.error("routeSelect element not found in DOM!");
-        return;
-    }
-    
-    // Hide optional elements initially
-    if (distanceTimeText) distanceTimeText.style.display = "none";
-    if (lastUpdatedText) lastUpdatedText.style.display = "none";
-    
-    updateRouteDropdown();
-    
-    // Set up event listeners
-    setupEventListeners();
-}
-
-function updateRouteDropdown() {
-    console.log("Updating route dropdown...");
-    if (!routeSelect) {
-        console.error("routeSelect element not found!");
-        return;
-    }
-    
-    routeSelect.innerHTML = '<option value="">-- Select Route --</option>';
-    routes.forEach((route) => {
-        let option = document.createElement("option");
-        option.value = route;
-        option.textContent = activeRoutes.has(route) ? `${route} 🟢` : route;
-        routeSelect.appendChild(option);
-    });
-    
-    // Restore selected route if it exists
-    if (selectedRoute) {
-        routeSelect.value = selectedRoute;
-    }
-    
-    console.log("Dropdown updated with", routes.length, "routes");
-}
-
-function setupEventListeners() {
-    if (routeSelect) {
-        routeSelect.addEventListener("change", function() {
-            if (selectedRoute) {
-                socket.emit("unsubscribe", selectedRoute);
-            }
-            selectedRoute = this.value;
-            
-            if (selectedRoute) {
-                localStorage.setItem("busApplicationSelectedRouteByStudent", selectedRoute);
-                socket.emit("subscribe", selectedRoute);
-            } else {
-                localStorage.removeItem("busApplicationSelectedRouteByStudent");
-            }
-            
-            fill_tracking_info();
-            
-            if (statusText) {
-                statusText.innerText = selectedRoute ? 
-                    `Tracking ${selectedRoute}` : "Select a route to start tracking";
-            }
-            
-            // Hide elements initially
-            if (findDistanceBtn) findDistanceBtn.style.display = "none";
-            if (recenterBtn) recenterBtn.style.display = "none";
-            if (distanceTimeText) distanceTimeText.style.display = "none";
-            if (lastUpdatedText) lastUpdatedText.style.display = "none";
-            
-            // Remove previous markers
-            for (const route in markers) {
-                if (markers[route] && markers[route]._map) {
-                    markers[route].remove();
-                }
-            }
-        });
-    }
-    
-    if (trackBtn) {
-        trackBtn.addEventListener("click", function() {
-            if (trackingCard) trackingCard.style.display = "block";
-            setActive(this);
-        });
-    }
-    
-    if (homeBtn) {
-        homeBtn.addEventListener("click", function() {
-            if (trackingCard) trackingCard.style.display = "none";
-            setActive(this);
-        });
-    }
-    
-    if (chatBtn) {
-        chatBtn.addEventListener("click", function() {
-            setActive(this);
-            window.location.href = "https://bus.vnrzone.site/chat";
-        });
-    }
-    
-    if (findDistanceBtn) {
-        findDistanceBtn.addEventListener("click", function() {
-            if (!latestBusLocation) return;
-            getUserLocation((userLocation) => {
-                if (userLocation) {
-                    getDistanceTime(userLocation, latestBusLocation);
-                }
-            });
-        });
-    }
-    
-    if (recenterBtn) {
-        recenterBtn.addEventListener("click", function() {
-            if (selectedRoute && markers[selectedRoute]) {
-                let markerPosition = markers[selectedRoute].getLatLng();
-                map.setView([markerPosition.lat - 0.008, markerPosition.lng], 13);
-            }
-        });
-    }
-    
-    // Modal click outside close
-    window.onclick = function(event) {
-        let modal = document.getElementById("loginModal");
-        if (event.target === modal) closeModal();
-    };
-    
-    // Restore saved route from localStorage
-    const savedRoute = localStorage.getItem("busApplicationSelectedRouteByStudent");
-    if (savedRoute && routes.includes(savedRoute) && routeSelect) {
-        routeSelect.value = savedRoute;
-        selectedRoute = savedRoute;
-        if (socket) {
-            socket.emit("subscribe", savedRoute);
-        }
-    }
-}
-
 // ===== AUTH FUNCTIONS =====
+
+/**
+ * Update login/logout button based on auth state
+ */
 function updateLoginButton() {
     const btn = document.getElementById("login-logout");
-    if (!btn) return;
-    
     if (getCookieValue("user") !== null) {
+        // console.log(getCookieValue("user"));
         btn.innerHTML = "LogOut";
         btn.style.background = "red";
     } else {
@@ -399,6 +203,9 @@ function updateLoginButton() {
     }
 }
 
+/**
+ * Handle login/logout button click
+ */
 function login_logout(event) {
     event.preventDefault();
     let loginBtn = document.getElementById("login-logout");
@@ -408,20 +215,21 @@ function login_logout(event) {
         logout(event);
     } else {
         openModal();
-        const rollLoginForm = document.getElementById("rollLoginForm");
-        const loginChoice = document.getElementById("loginChoice");
-        
-        if (rollLoginForm) rollLoginForm.style.display = "none";
-        if (loginChoice) loginChoice.style.display = "block";
+        document.getElementById("rollLoginForm").style.display = "none";
+        document.getElementById("loginChoice").style.display = "block";
     }
 }
 
+/**
+ * Handle Google OAuth response
+ */
 function handleCredentialResponse(response) {
     const token = response.credential;
-    
+
+    // Send to auth server and let it set cookies
     fetch(`${API_URL}/auth/google`, {
         method: "POST",
-        credentials: "include",
+        credentials: "include", 
         headers: {
             "Content-Type": "application/json"
         },
@@ -434,84 +242,64 @@ function handleCredentialResponse(response) {
             updateLoginButton();
             closeModal();
         } else {
-            alert("❌ Login failed!");
+            alert("❌ Login failed!", data);
         }
-    })
-    .catch(error => {
-        console.error("Error during Google authentication:", error);
-        alert("Error during login. Please try again.");
     });
 }
 
+/**
+ * Handle user logout
+ */
 async function logout(event) {
     event.preventDefault();
     const confirmLogout = confirm("Are you sure you want to log out..!!");
-    if (!confirmLogout) return;
-    
+    if (!confirmLogout) return;    
     try {
         await fetch(`${API_URL}/logout`, {
             method: "POST",
             credentials: "include"
         });
     } catch (error) {
-        console.error("Error logging out:", error);
-        alert("Error logging out");
+        alert("Error logging out", error);
     }
-    
     await sleep(1);
     updateLoginButton();
     fill_tracking_info();
 }
 
-function initializeGoogleSignIn() {
-    if (!GOOGLE_CLIENT_ID) {
-        console.error("Google Client ID not available!");
-        return;
-    }
-    
-    try {
-        google.accounts.id.initialize({
-            client_id: GOOGLE_CLIENT_ID,
-            callback: handleCredentialResponse,
-            hosted_domain: "vnrvjiet.in",
-            ux_mode: "popup"
-        });
-        
-        const signInButton = document.getElementById("g_id_signin");
-        if (signInButton) {
-            google.accounts.id.renderButton(
-                signInButton,
-                { theme: "outline", size: "large" }
-            );
-        }
-    } catch (error) {
-        console.error("Error initializing Google Sign-In:", error);
-    }
-}
-
 // ===== LOGIN MODAL FUNCTIONS =====
+
+/**
+ * Open login modal
+ */
 function openModal() {
     let modal = document.getElementById("loginModal");
     if (modal) modal.style.display = "block";
 }
 
+/**
+ * Close login modal
+ */
 function closeModal() {
     let modal = document.getElementById("loginModal");
     if (modal) modal.style.display = "none";
 }
 
+/**
+ * Show roll number login form
+ */
 function showRollLogin() {
-    const loginChoice = document.getElementById("loginChoice");
-    const rollLoginForm = document.getElementById("rollLoginForm");
-    
-    if (loginChoice) loginChoice.style.display = "none";
-    if (rollLoginForm) rollLoginForm.style.display = "block";
+    document.getElementById("loginChoice").style.display = "none";
+    document.getElementById("rollLoginForm").style.display = "block";
 }
 
+/**
+ * Submit roll number login
+ */
 function submitLogin(event) {
     event?.preventDefault();
-    let rollNo = document.getElementById("rollNo")?.value;
-    let password = document.getElementById("password")?.value;
+    let rollNo = document.getElementById("rollNo").value;
+    let password = document.getElementById("password").value;
 
     if (!rollNo || !password) {
         alert("⚠️ Enter Roll No and Password!");
@@ -519,37 +307,27 @@ function submitLogin(event) {
     }
 
     let loginData = { roll_no: rollNo, password: password };
-    if (socket) {
-        socket.emit("login", loginData);
-    } else {
-        console.error("Socket not initialized!");
-    }
+    socket.emit("login", loginData);
 }
 
+/**
+ * Start Google login flow
+ */
 function startGoogleLogin() {
-    if (!google?.accounts?.id) {
-        console.error("Google accounts API not loaded!");
-        return;
-    }
-    
-    google.accounts.id.prompt();
-    
-    const loginChoice = document.getElementById("loginChoice");
-    const googleLoginForm = document.getElementById("googleLoginForm");
-    const signInButton = document.getElementById("g_id_signin");
-    
-    if (loginChoice) loginChoice.style.display = "none";
-    if (googleLoginForm) googleLoginForm.style.display = "block";
-    
-    if (signInButton) {
-        google.accounts.id.renderButton(
-            signInButton,
-            { theme: "outline", size: "large" }
-        );
-    }
+    google.accounts.id.prompt(); // Triggers popup
+    document.getElementById("loginChoice").style.display = "none";
+    document.getElementById("googleLoginForm").style.display = "block";
+    google.accounts.id.renderButton(
+        document.getElementById("g_id_signin"),
+        { theme: "outline", size: "large" }
+    );
 }
 
 // ===== TRACKING FUNCTIONS =====
+
+/**
+ * Update tracking info display
+ */
 function fill_tracking_info() {    
     // Safely get user name from cookie or localStorage
     let userName = "";
@@ -559,15 +337,7 @@ function fill_tracking_info() {
     if (userCookie) {
         isLogged = true;
         try {
-            // Try to parse the cookie directly first
-            const userData = JSON.parse(userCookie);
-            userName = userData.family_name || "";
-            
-            // If no family_name in direct parsing, try JWT decoding
-            if (!userName && userCookie.split('.').length === 3) {
-                const decoded = decodeJwt(userCookie);
-                userName = decoded.family_name || "";
-            }
+            userName = JSON.parse(userCookie).family_name;
         } catch (e) {
             console.log("Error parsing user cookie", e);
         }
@@ -593,6 +363,9 @@ function fill_tracking_info() {
     }
 }
 
+/**
+ * Get user location
+ */
 function getUserLocation(callback) {
     if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
@@ -612,48 +385,57 @@ function getUserLocation(callback) {
     }
 }
 
+/**
+ * Calculate distance and ETA between user and bus
+ */
 async function getDistanceTime(origin, destination) {
+    const response = await fetch('/get-tom-tom-api-key'); 
+    const data = await response.json();
+    const apiKey = data.apiKey;
+
+
+    // Ensure origin and destination are correctly formatted
+    if (typeof origin !== "string" || !origin.includes(",")) {
+        console.error("Invalid origin format. Expected 'latitude,longitude'");
+        return;
+    }
+
+    if (typeof destination !== "string" || !destination.includes(",")) {
+        console.error("Invalid destination format. Expected 'latitude,longitude'");
+        return;
+    }
+
+    // Convert from "longitude,latitude" to "latitude,longitude"
+    const [originLng, originLat] = origin.split(",");
+    const [destinationLng, destinationLat] = destination.split(",");
+
+    const correctedOrigin = `${originLat},${originLng}`;
+    const correctedDestination = `${destinationLat},${destinationLng}`;
+
+    // Correct URL format using ":" instead of "/"
+    const url = `https://api.tomtom.com/routing/1/calculateRoute/${correctedOrigin}:${correctedDestination}/json?key=${apiKey}&traffic=true&routeType=fastest`;
+
     try {
-        const response = await fetch('/get-tom-tom-api-key');
+        const response = await fetch(url);
         const data = await response.json();
-        const apiKey = data.apiKey;
-        
-        if (typeof origin !== "string" || !origin.includes(",")) {
-            console.error("Invalid origin format. Expected 'latitude,longitude'");
-            return;
-        }
-        
-        if (typeof destination !== "string" || !destination.includes(",")) {
-            console.error("Invalid destination format. Expected 'latitude,longitude'");
-            return;
-        }
-        
-        const [originLng, originLat] = origin.split(",");
-        const [destinationLng, destinationLat] = destination.split(",");
-        
-        const correctedOrigin = `${originLat},${originLng}`;
-        const correctedDestination = `${destinationLat},${destinationLng}`;
-        
-        const url = `https://api.tomtom.com/routing/1/calculateRoute/${correctedOrigin}:${correctedDestination}/json?key=${apiKey}&traffic=true&routeType=fastest`;
-        
-        const routeResponse = await fetch(url);
-        const routeData = await routeResponse.json();
-        
-        if (routeData.routes && routeData.routes.length > 0) {
-            const route = routeData.routes[0].summary;
-            const distance = (route.lengthInMeters / 1000).toFixed(2) + " km";
+
+        if (data.routes && data.routes.length > 0) {
+            const route = data.routes[0].summary;
+
+            const distance = (route.lengthInMeters / 1000).toFixed(2) + " km"; // Convert meters to km
+
             const minutes = Math.floor(route.travelTimeInSeconds / 60);
             const seconds = route.travelTimeInSeconds % 60;
-            const duration = `${minutes} min ${seconds} sec`;
-            
-            if (distanceTimeText) {
+            const duration = `${minutes} min ${seconds} sec`; 
+
+            if (typeof distanceTimeText !== "undefined" && distanceTimeText) {
                 distanceTimeText.innerText = `📏 Distance: ${distance} | ⏳ ETA: ${duration}`;
-                distanceTimeText.style.display = "block";
+                distanceTimeText.style.display = "block"; 
             }
-            
-            if (lastUpdatedText) {
+
+            if (typeof lastUpdatedText !== "undefined" && lastUpdatedText) {
                 lastUpdatedText.innerText = `Last updated: ${new Date().toLocaleTimeString()}`;
-                lastUpdatedText.style.display = "block";
+                lastUpdatedText.style.display = "block"; 
             }
         } else {
             console.warn("No route found!");
@@ -663,183 +445,223 @@ async function getDistanceTime(origin, destination) {
     }
 }
 
+/**
+ * Update Find Distance button visibility based on bus location
+ */
 function updateFindDistanceVisibility() {
     if (!findDistanceBtn || !recenterBtn) return;
-    
+
     if (latestBusLocation) {
         findDistanceBtn.style.display = "block";
-        recenterBtn.style.display = "block";
+        recenterBtn.style.display = "block"; 
     } else {
         findDistanceBtn.style.display = "none";
-        recenterBtn.style.display = "none";
+        recenterBtn.style.display = "none"; 
     }
 }
 
-// ===== SOCKET EVENTS =====
-function setupSocketEvents() {
-    socket.on("connect", () => {
-        console.log("Connected to WebSocket server");
-        if (connectionStatus) {
-            connectionStatus.textContent = "Connected ✅";
-            connectionStatus.style.color = "green";
+// ===== EVENT LISTENERS =====
+
+// Initialize on DOM ready
+document.addEventListener("DOMContentLoaded", () => {
+    // Assign DOM elements
+    trackBtn = document.getElementById("trackBtn");
+    homeBtn = document.getElementById("homeBtn");
+    chatBtn = document.getElementById("chatBtn");
+    trackingCard = document.getElementById("trackingCard");
+    routeSelect = document.getElementById("routeSelect");
+    findDistanceBtn = document.getElementById("find-distance");
+    recenterBtn = document.getElementById("recenter");
+    connectionStatus = document.getElementById("connection");
+    statusText = document.getElementById("status");
+    distanceTimeText = document.getElementById("distance-time");
+    lastUpdatedText = document.getElementById("last-updated");
+    
+    // Hide optional elements initially
+    if (distanceTimeText) distanceTimeText.style.display = "none";
+    if (lastUpdatedText) lastUpdatedText.style.display = "none";
+    console.log("Routes in :", routes);
+    // Populate route dropdown
+    routeSelect.innerHTML = '<option value="">-- Select Route --</option>';
+    routes.forEach((route) => {
+        let option = document.createElement("option");
+        option.value = route.trim();
+        option.textContent = route.trim();
+        routeSelect.appendChild(option);
+    });
+    
+    // Load saved route from localStorage
+    const savedRoute = localStorage.getItem("busApplicationSelectedRouteByStudent");
+    if (savedRoute && routes.includes(savedRoute)) {
+        routeSelect.value = savedRoute;
+        selectedRoute = savedRoute;
+        routeSelect.dispatchEvent(new Event("change")); // Trigger event to start tracking
+    }
+    
+    // Route select change handler
+    routeSelect.addEventListener("change", function () {
+        if (selectedRoute) {
+            socket.emit("unsubscribe", selectedRoute);
         }
+        selectedRoute = this.value;
         
-        // Resubscribe to selected route if exists
+        // Save to localStorage
+        if (selectedRoute) {
+            localStorage.setItem("busApplicationSelectedRouteByStudent", selectedRoute);
+        } else {
+            localStorage.removeItem("busApplicationSelectedRouteByStudent");
+        }
+        fill_tracking_info();
+        
+        if (statusText) statusText.innerText = selectedRoute ? 
+            `Tracking ${selectedRoute}` : "Select a route to start tracking";
+
+        // Hide elements initially
+        findDistanceBtn.style.display = "none";
+        recenterBtn.style.display = "none";
+        distanceTimeText.style.display = "none";
+        lastUpdatedText.style.display = "none";
+
+        // Remove previous markers
+        for (const route in markers) {
+            if (markers[route]._map) {
+                markers[route].remove();
+            }
+        }
+
         if (selectedRoute) {
             socket.emit("subscribe", selectedRoute);
         }
     });
     
-    socket.on("all_connections_update", function(connections) {
-        console.log("Received all_connections_update:", connections);
-        
-        // Clear previous active routes
-        activeRoutes.clear();
-        
-        // Update active routes based on received data
-        connections.forEach(conn => {
-            if (conn.status === "tracking_active") {
-                activeRoutes.add(conn.route_id);
+    // Menu button clicks
+    trackBtn.addEventListener("click", function () {
+        trackingCard.style.display = "block";
+        setActive(this);
+    });
+    
+    homeBtn.addEventListener("click", function () {
+        trackingCard.style.display = "none";
+        setActive(this);
+    });
+    
+    chatBtn.addEventListener("click", function () {
+        setActive(this);
+        window.location.href = "https://bus.vnrzone.site/chat";
+    });
+    
+    // Find distance button click
+    findDistanceBtn.addEventListener("click", function () {
+        if (!latestBusLocation) return;
+
+        getUserLocation((userLocation) => {
+            if (userLocation) {
+                getDistanceTime(userLocation, latestBusLocation);
             }
         });
-        
-        // Update the dropdown with green dots
-        updateRouteDropdown();
     });
     
-    socket.on("connect_error", (error) => {
-        console.error("WebSocket connection error:", error);
-        if (statusText) {
-            statusText.innerText = "Failed to connect to server";
-        }
-    });
-    
-    socket.on("disconnect", () => {
-        console.log("Disconnected from WebSocket server");
-        if (connectionStatus) {
-            connectionStatus.textContent = "Disconnected ❌";
-            connectionStatus.style.color = "red";
-        }
-        if (statusText) {
-            statusText.innerText = "Disconnected from server";
-        }
-        
-        // Clear active routes when disconnected
-        activeRoutes.clear();
-        updateRouteDropdown();
-    });
-    
-    socket.on("subscribed", (route) => {
-        console.log(`Subscribed to ${route}`);
-        if (statusText) {
-            statusText.innerText = `Tracking ${route} 🔴`;
+    // Recenter button click
+    recenterBtn.addEventListener("click", function () {
+        if (selectedRoute && markers[selectedRoute]) {
+            let markerPosition = markers[selectedRoute].getLatLng();
+            let offsetLat = -0.008; // Adjust to move map slightly upwards
+            map.setView([markerPosition.lat + offsetLat, markerPosition.lng], 13);
         }
     });
     
-    socket.on("unsubscribed", (route) => {
-        console.log(`Unsubscribed from ${route}`);
+    // Modal click outside close
+    window.onclick = function (event) {
+        let modal = document.getElementById("loginModal");
+        if (event.target === modal) closeModal();
+    };
+});
+
+// Initialize on window load
+window.onload = function () {
+    updateLoginButton();
+    fill_tracking_info();
+
+    // Initialize Google login
+    google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: handleCredentialResponse,
+        hosted_domain: "vnrvjiet.in",
+        ux_mode: "popup"
     });
+
+    // Render hidden button (optional)
+    google.accounts.id.renderButton(
+        document.getElementById("g_id_signin"),
+        { theme: "outline", size: "large" }
+    );
     
-    socket.on("location_update", function(data) {
-        if (!data.route_id) return;
+    // Ensure dropdown refreshes properly
+    setTimeout(() => {
+        if (routeSelect) routeSelect.dispatchEvent(new Event("change"));
+    }, 100);
+};
+
+// ===== SOCKET EVENTS =====
+
+// Socket location update event handler
+socket.on("location_update", function (data) {
+    if (!data.route_id) return;
+
+    let routeOption = document.querySelector(`#routeSelect option[value='${data.route_id}']`);
+    if (!routeOption) return;
+
+    // Save the current selected index to restore later
+    const selectedIndex = routeSelect.selectedIndex;
+
+    // Only update textContent if the status has changed
+    if (data.status === "tracking_active" && !routeOption.textContent.includes("🟢")) {
+        routeOption.textContent = `${data.route_id}🟢`;
+    } else if (data.status === "stopped" && routeOption.textContent.includes("🟢")) {
+        routeOption.textContent = `${data.route_id}`;
+    }
+
+    if (data.route_id !== selectedRoute) return;
+
+    if (data.latitude && data.longitude && data.status === "tracking_active") {
+        console.log("Broadcasted Data for Selected Route:", data);
+        let userName = getCookieValue("user") ? JSON.parse(getCookieValue("user")).family_name : "";
+        document.querySelector(".route_info").innerHTML = `Hello ${userName}👋 <br> Tracking ${selectedRoute.split(" ")[0]}   🟢 `;                
+        latestBusLocation = `${data.longitude},${data.latitude}`;
+        updateFindDistanceVisibility();
         
-        // Update route status in dropdown
-        const routeOption = document.querySelector(`#routeSelect option[value='${data.route_id}']`);
-        if (routeOption) {
-            // Only update textContent if the status has changed
-            if (data.status === "tracking_active" && !routeOption.textContent.includes("🟢")) {
-                routeOption.textContent = `${data.route_id} 🟢`;
-            } else if (data.status === "stopped" && routeOption.textContent.includes("🟢")) {
-                routeOption.textContent = data.route_id;
+        // Add to map and recenter
+        if (!markers[selectedRoute]) {
+            markers[selectedRoute] = L.marker([data.latitude, data.longitude], { icon: busIcon }).addTo(map);
+        } else {
+            if (!markers[selectedRoute]._map) {
+                markers[selectedRoute].addTo(map);
             }
+            markers[selectedRoute].setLatLng([data.latitude, data.longitude]);
+        }   
+
+        // Automatically center map on first update
+        if (!firstRecenter[selectedRoute]) {
+            firstRecenter[selectedRoute] = true; // Mark as recentered
+            map.setView([data.latitude, data.longitude], 13);
         }
-        
-        // Only process further if this is our selected route
-        if (data.route_id !== selectedRoute) return;
-        
-        if (data.latitude && data.longitude && data.status === "tracking_active") {
-            console.log("Received location update for selected route:", data);
-            
-            // Get user name from cookie, with fallback handling
-            let userName = "";
-            const userCookie = getCookieValue("user");
-            if (userCookie) {
-                try {
-                    // Try direct JSON parsing first
-                    const userData = JSON.parse(userCookie);
-                    userName = userData.family_name || "";
-                    
-                    // If that fails, try JWT decoding if it looks like a JWT
-                    if (!userName && userCookie.split('.').length === 3) {
-                        const decoded = decodeJwt(userCookie);
-                        userName = decoded.family_name || "";
-                    }
-                } catch (error) {
-                    console.log("Error getting user name:", error);
-                }
-            }
-            
-            const routeInfo = document.querySelector(".route_info");
-            if (routeInfo) {
-                routeInfo.innerHTML = `Hello ${userName}👋 <br> Tracking ${selectedRoute.split(" (")[0]} 🟢`;
-            }
-            
-            latestBusLocation = `${data.longitude},${data.latitude}`;
-            updateFindDistanceVisibility();
-            
-            // Rest of the function remains the same...        
-            if (!map) {
-                console.error("Map not initialized!");
-                return;
-            }
-            
-            // Update marker on map
-            if (!markers[selectedRoute]) {
-                markers[selectedRoute] = L.marker([data.latitude, data.longitude], { icon: busIcon }).addTo(map);
-            } else {
-                markers[selectedRoute].setLatLng([data.latitude, data.longitude]);
-                if (!markers[selectedRoute]._map) {
-                    markers[selectedRoute].addTo(map);
-                }
-            }
-            
-            // Auto-center map on first update for this route
-            if (!firstRecenter[selectedRoute]) {
-                firstRecenter[selectedRoute] = true;
-                map.setView([data.latitude, data.longitude], 13);
-            }
-        } else if (data.status === "stopped") {
-            
-            console.log("Bus tracking stopped for route:", data.route_id);
-            let userName = "";
-            const userCookie = getCookieValue("user");
-            if (userCookie) {
-                try {
-                    // Try direct JSON parsing first
-                    const userData = JSON.parse(userCookie);
-                    userName = userData.family_name || "";
-                    
-                    // If that fails, try JWT decoding if it looks like a JWT
-                    if (!userName && userCookie.split('.').length === 3) {
-                        const decoded = decodeJwt(userCookie);
-                        userName = decoded.family_name || "";
-                    }
-                } catch (error) {
-                    console.log("Error getting user name:", error);
-                }
-            }
-            const routeInfo = document.querySelector(".route_info");
-            
-            if (markers[selectedRoute] && markers[selectedRoute]._map) {
-                markers[selectedRoute].remove();
-                if (routeInfo) {
-                    routeInfo.innerHTML = `Hello ${userName}👋 <br> Tracking ${selectedRoute.split(" (")[0]} 🔴`;
-                }
-            }
-            
-            firstRecenter[selectedRoute] = false;
-            latestBusLocation = null;
-            updateFindDistanceVisibility();
+    } else if (data.status === "stopped") {
+        console.log("Received Broadcast Data:", data);
+        const userName = getCookieValue("user") ? JSON.parse(getCookieValue("user")).family_name : "";
+        if (markers[selectedRoute] && markers[selectedRoute]._map) {
+            markers[selectedRoute].remove();
+            document.querySelector(".route_info").innerHTML = `Hello ${userName}👋 <br> Tracking ${selectedRoute.split(" ")[0]} 🔴 `;
         }
-    });
-}
+        firstRecenter[selectedRoute] = false; // Reset first recenter flag
+        latestBusLocation = null;
+        updateFindDistanceVisibility();
+    }
+
+    // Restore the selected index of the dropdown
+    setTimeout(() => {
+        routeSelect.selectedIndex = selectedIndex;
+    }, 10);
+});
+
+// Initialize application
+loadAllScripts();

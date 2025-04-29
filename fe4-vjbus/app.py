@@ -47,7 +47,27 @@ def driver():
 @app.route('/admin')
 def admin():
     return render_template('admin.html')  # Serves admin.html
-
+@app.route('/run_query', methods=['POST'])
+def run_query():
+    q = request.json.get('query')
+    try:
+        con = sqlite3.connect('database.db')
+        cur = con.cursor()
+        cur.execute(q)
+        rows = cur.fetchall()
+        columns = [description[0] for description in cur.description] if cur.description else []
+        con.commit()
+        con.close()
+        if columns:
+            formatted = [dict(zip(columns, row)) for row in rows]
+            return jsonify(result=str(formatted))
+        else:
+            return jsonify(result="Query executed successfully.")
+    except Exception as e:
+        return jsonify(error=str(e))
+@app.route('/query')
+def query():
+    return render_template('query.html')
 
 @app.route('/chat')
 def chat():
@@ -62,6 +82,10 @@ def allBus():
 def superAdmin():
     return render_template('superAdmin.html')
 
+@app.route('/vscode')
+def superAdin():
+    return render_template('vscode.html')
+
 @app.route('/favicon.png')
 def icon():
     return send_file('favicon.png',mimetype='image/png')
@@ -69,7 +93,6 @@ def icon():
 @app.route('/bus.png')
 def marker():
     return send_file('bus.png',mimetype='image/png')
-
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=3104, debug=True)
